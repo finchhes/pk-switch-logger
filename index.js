@@ -68,7 +68,7 @@ async function buildDiscordEmbed(event) {
             fields: [
               { name: "in front:", value: members, inline: false },
               ...(data?.timestamp
-                ? [{ name: "time", value: `<t:${Math.floor(new Date(data.timestamp).getTime() / 1000)}:F>`, inline: false }]
+                ? [{ name: "time:", value: `<t:${Math.floor(new Date(data.timestamp).getTime() / 1000)}:F>`, inline: false }]
                 : []),
             ],
             timestamp: new Date().toISOString(),
