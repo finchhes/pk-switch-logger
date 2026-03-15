@@ -20,7 +20,7 @@ if (!SIGNING_TOKEN || !DISCORD_WEBHOOK_URL) {
 async function fetchSystemName(systemId) {
   try {
     const res = await fetch(`https://api.pluralkit.me/v2/systems/${systemId}`);
-    if (!res.ok) return systemId; // fall back to ID if fetch fails
+    if (!res.ok) return systemId;
     const data = await res.json();
     return data.name ?? systemId;
   } catch {
@@ -31,7 +31,7 @@ async function fetchSystemName(systemId) {
 async function fetchMemberName(memberId) {
   try {
     const res = await fetch(`https://api.pluralkit.me/v2/members/${memberId}`);
-    if (!res.ok) return memberId; // fall back to ID if fetch fails
+    if (!res.ok) return memberId; 
     const data = await res.json();
     return data.display_name ?? data.name ?? memberId;
   } catch {
@@ -41,7 +41,7 @@ async function fetchMemberName(memberId) {
 
 async function formatMembers(members) {
   if (!members || members.length === 0) return "*no one*";
-  // fetch all member names in parallel
+
   const names = await Promise.all(
     members.map((m) => (typeof m === "string" ? fetchMemberName(m) : Promise.resolve(m.display_name ?? m.name)))
   );
@@ -63,7 +63,7 @@ async function buildDiscordEmbed(event) {
         avatar_url: "https://pluralkit.me/favicon.png",
         embeds: [
           {
-            title: `new switch in ${systemName}!`,
+            title: `new switch in **${systemName}**!`,
             color: 0x5865f2,
             fields: [
               { name: "in front:", value: members, inline: false },
@@ -84,14 +84,14 @@ async function buildDiscordEmbed(event) {
         avatar_url: "https://pluralkit.me/favicon.png",
         embeds: [
           {
-            title: `switch updated in ${systemName}!`,
+            title: `switch updated in **${systemName}**!`,
             color: 0xfee75c,
             fields: [
               ...(data?.members !== undefined
                 ? [{ name: "now fronting:", value: members, inline: false }]
                 : []),
               ...(data?.timestamp
-                ? [{ name: "new time:", value: `<t:${Math.floor(new Date(data.timestamp).getTime() / 1000)}:F>`, inline: false }]
+                ? [{ name: "time:", value: `<t:${Math.floor(new Date(data.timestamp).getTime() / 1000)}:F>`, inline: false }]
                 : []),
             ],
             timestamp: new Date().toISOString(),
