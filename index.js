@@ -5,8 +5,8 @@ const app = express();
 app.use(express.json());
 
 // ── Config (set these as environment variables) ──────────────────────────────
-const SIGNING_TOKEN = process.env.PK_SIGNING_TOKEN;   // from PluralKit dashboard
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL; // Discord webhook URL
+const SIGNING_TOKEN = process.env.PK_SIGNING_TOKEN;
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 const PORT = process.env.PORT || 3000;
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -15,32 +15,60 @@ if (!SIGNING_TOKEN || !DISCORD_WEBHOOK_URL) {
   process.exit(1);
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── PluralKit API fetchers ────────────────────────────────────────────────────
 
-function formatMembers(members) {
-  if (!members || members.length === 0) return "*no one (cleared)*";
-  return members.map((m) => `**${m}**`).join(", ");
+async function fetchSystemName(systemId) {
+  try {
+    const res = await fetch(`https://api.pluralkit.me/v2/systems/${systemId}`);
+    if (!res.ok) return systemId; // fall back to ID if fetch fails
+    const data = await res.json();
+    return data.name ?? systemId;
+  } catch {
+    return systemId;
+  }
 }
 
-function buildDiscordEmbed(event) {
+async function fetchMemberName(memberId) {
+  try {
+    const res = await fetch(`https://api.pluralkit.me/v2/members/${memberId}`);
+    if (!res.ok) return memberId; // fall back to ID if fetch fails
+    const data = await res.json();
+    return data.display_name ?? data.name ?? memberId;
+  } catch {
+    return memberId;
+  }
+}
+
+async function formatMembers(members) {
+  if (!members || members.length === 0) return "*no one*";
+  // fetch all member names in parallel
+  const names = await Promise.all(
+    members.map((m) => (typeof m === "string" ? fetchMemberName(m) : Promise.resolve(m.display_name ?? m.name)))
+  );
+  return names.map((n) => `**${n}**`).join(", ");
+}
+
+// ── Embed builder ─────────────────────────────────────────────────────────────
+
+async function buildDiscordEmbed(event) {
   const { type, system_id, id, data } = event;
+
+  const systemName = await fetchSystemName(system_id);
 
   switch (type) {
     case "CREATE_SWITCH": {
-      const members = formatMembers(data?.members);
+      const members = await formatMembers(data?.members);
       return {
-        username: "PluralKit Switch Log",
+        username: "pkSwitch!",
         avatar_url: "https://pluralkit.me/favicon.png",
         embeds: [
           {
-            title: "🔄 New Switch Logged",
+            title: `new switch in ${systemName}!`,
             color: 0x5865f2,
             fields: [
-              { name: "Fronting", value: members, inline: false },
-              { name: "Switch ID", value: `\`${id}\``, inline: true },
-              { name: "System", value: `\`${system_id}\``, inline: true },
+              { name: "in front:", value: members, inline: false },
               ...(data?.timestamp
-                ? [{ name: "Time", value: `<t:${Math.floor(new Date(data.timestamp).getTime() / 1000)}:F>`, inline: false }]
+                ? [{ name: "time", value: `<t:${Math.floor(new Date(data.timestamp).getTime() / 1000)}:F>`, inline: false }]
                 : []),
             ],
             timestamp: new Date().toISOString(),
@@ -50,23 +78,21 @@ function buildDiscordEmbed(event) {
     }
 
     case "UPDATE_SWITCH": {
-      const members = formatMembers(data?.members);
+      const members = await formatMembers(data?.members);
       return {
-        username: "PluralKit Switch Log",
+        username: "pkSwitch!",
         avatar_url: "https://pluralkit.me/favicon.png",
         embeds: [
           {
-            title: "✏️ Switch Updated",
+            title: `switch updated in ${systemName}!`,
             color: 0xfee75c,
             fields: [
               ...(data?.members !== undefined
-                ? [{ name: "New Fronters", value: members, inline: false }]
+                ? [{ name: "now fronting:", value: members, inline: false }]
                 : []),
               ...(data?.timestamp
-                ? [{ name: "New Time", value: `<t:${Math.floor(new Date(data.timestamp).getTime() / 1000)}:F>`, inline: false }]
+                ? [{ name: "new time:", value: `<t:${Math.floor(new Date(data.timestamp).getTime() / 1000)}:F>`, inline: false }]
                 : []),
-              { name: "Switch ID", value: `\`${id}\``, inline: true },
-              { name: "System", value: `\`${system_id}\``, inline: true },
             ],
             timestamp: new Date().toISOString(),
           },
@@ -119,7 +145,7 @@ app.post("/webhook", async (req, res) => {
 
   // 4. Build and send Discord message
   try {
-    const payload = buildDiscordEmbed(event);
+    const payload = await buildDiscordEmbed(event);
     if (payload) {
       await sendToDiscord(payload);
       console.log(`✅ Forwarded ${type} to Discord`);
