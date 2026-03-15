@@ -45,7 +45,7 @@ async function formatMembers(members) {
   const names = await Promise.all(
     members.map((m) => (typeof m === "string" ? fetchMemberName(m) : Promise.resolve(m.display_name ?? m.name)))
   );
-  return names.map((n) => `**${n}**`).join(", ");
+  return names.map((n) => `* **${n}**`).join("\n");
 }
 
 // ── Embed builder ─────────────────────────────────────────────────────────────
