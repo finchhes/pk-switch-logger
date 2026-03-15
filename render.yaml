@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: pk-switch-webhook
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PK_SIGNING_TOKEN
+        sync: false        # set manually in Render dashboard
+      - key: DISCORD_WEBHOOK_URL
+        sync: false        # set manually in Render dashboard
