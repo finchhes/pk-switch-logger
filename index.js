@@ -16,8 +16,10 @@ if (!SIGNING_TOKEN || !DISCORD_WEBHOOK_URL) {
 }
 
 // ── Simple TTL cache ──────────────────────────────────────────────────────────
+// Caches PK API responses so repeated webhook events don't re-fetch the same
+// system/member data and blow through PluralKit's rate limits.
 
-const CACHE_TTL_MS = 5 * 60 * 1000; 
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 class TTLCache {
   constructor() {
@@ -42,6 +44,8 @@ class TTLCache {
 const cache = new TTLCache();
 
 // ── Fetch with retry + rate-limit backoff ─────────────────────────────────────
+// Retries up to `maxRetries` times. On a 429 it waits for the Retry-After
+// header (or a default back-off) before trying again.
 
 async function fetchWithRetry(url, options = {}, maxRetries = 3) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -175,20 +179,26 @@ async function sendToDiscord(payload, maxRetries = 3) {
       body: JSON.stringify(payload),
     });
 
-    if (res.status === 429) {
-      const body = await res.json().catch(() => ({}));
+    // Read body once so we don't hit "body used already"
+    const responseText = await res.text();
 
-      const waitMs = body.retry_after ? Math.ceil(body.retry_after * 1000) : 2000;
+    if (res.status === 429) {
+      let waitMs = 2000;
+      try {
+        const body = JSON.parse(responseText);
+        // Discord returns retry_after in seconds (float)
+        if (body.retry_after) waitMs = Math.ceil(body.retry_after * 1000);
+      } catch {}
       console.warn(`⏳ Discord rate limited — waiting ${waitMs}ms (attempt ${attempt + 1}/${maxRetries + 1})`);
       if (attempt < maxRetries) {
         await new Promise((r) => setTimeout(r, waitMs));
         continue;
       }
+      throw new Error(`Discord rate limit exceeded after ${maxRetries + 1} attempts`);
     }
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Discord webhook failed (${res.status}): ${text}`);
+      throw new Error(`Discord webhook failed (${res.status}): ${responseText}`);
     }
 
     return; // success
@@ -200,6 +210,7 @@ async function sendToDiscord(payload, maxRetries = 3) {
 app.post("/webhook", async (req, res) => {
   const event = req.body;
 
+  // 1. Validate signing token
   if (!event || event.signing_token !== SIGNING_TOKEN) {
     console.warn("⚠️  Invalid or missing signing_token — rejecting request");
     return res.status(401).json({ error: "Invalid signing token" });
@@ -208,16 +219,19 @@ app.post("/webhook", async (req, res) => {
   const { type } = event;
   console.log(`📨 Received event: ${type}`);
 
+  // 2. Handle PING
   if (type === "PING") {
     console.log("🏓 PING received — responding 200");
     return res.status(200).json({ ok: true });
   }
 
+  // 3. Only forward switch-related events
   const SWITCH_EVENTS = ["CREATE_SWITCH", "UPDATE_SWITCH"];
   if (!SWITCH_EVENTS.includes(type)) {
     return res.status(200).json({ ok: true, ignored: true });
   }
 
+  // 4. Build and send Discord message
   try {
     const payload = await buildDiscordEmbed(event);
     if (payload) {
