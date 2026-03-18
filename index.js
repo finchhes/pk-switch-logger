@@ -15,7 +15,7 @@ if (!SIGNING_TOKEN || !DISCORD_WEBHOOK_URL) {
   process.exit(1);
 }
 
-// ── Cache ──────────────────────────────────────────────────────────
+// ── Simple TTL cache ──────────────────────────────────────────────────────────
 
 const CACHE_TTL_MS = 5 * 60 * 1000; 
 
@@ -41,7 +41,7 @@ class TTLCache {
 
 const cache = new TTLCache();
 
-// ── Fetch with retry ─────────────────────────────────────
+// ── Fetch with retry + rate-limit backoff ─────────────────────────────────────
 
 async function fetchWithRetry(url, options = {}, maxRetries = 3) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -61,7 +61,7 @@ async function fetchWithRetry(url, options = {}, maxRetries = 3) {
   }
 }
 
-// ── PluralKit API fetchers ───────────────────────────────────────────
+// ── PluralKit API fetchers (cached) ───────────────────────────────────────────
 
 async function fetchSystemName(systemId) {
   const cacheKey = `system:${systemId}`;
@@ -191,14 +191,14 @@ async function sendToDiscord(payload, maxRetries = 3) {
       throw new Error(`Discord webhook failed (${res.status}): ${text}`);
     }
 
-    return; 
+    return; // success
+  }
 }
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
 app.post("/webhook", async (req, res) => {
   const event = req.body;
-
 
   if (!event || event.signing_token !== SIGNING_TOKEN) {
     console.warn("⚠️  Invalid or missing signing_token — rejecting request");
@@ -208,24 +208,21 @@ app.post("/webhook", async (req, res) => {
   const { type } = event;
   console.log(`📨 Received event: ${type}`);
 
-
   if (type === "PING") {
     console.log("🏓 PING received — responding 200");
     return res.status(200).json({ ok: true });
   }
-
 
   const SWITCH_EVENTS = ["CREATE_SWITCH", "UPDATE_SWITCH"];
   if (!SWITCH_EVENTS.includes(type)) {
     return res.status(200).json({ ok: true, ignored: true });
   }
 
-
   try {
     const payload = await buildDiscordEmbed(event);
     if (payload) {
       await sendToDiscord(payload);
-      console.log(`Forwarded ${type} to Discord`);
+      console.log(`✅ Forwarded ${type} to Discord`);
     }
     return res.status(200).json({ ok: true });
   } catch (err) {
