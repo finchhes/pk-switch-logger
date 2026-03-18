@@ -186,7 +186,7 @@ async function sendToDiscord(payload, maxRetries = 3) {
       let waitMs = 2000;
       try {
         const body = JSON.parse(responseText);
-        // Discord returns retry_after in seconds (float)
+        console.warn("Discord 429 raw body:", JSON.stringify(body));
         if (body.retry_after) waitMs = Math.ceil(body.retry_after * 1000);
       } catch {}
       console.warn(`⏳ Discord rate limited — waiting ${waitMs}ms (attempt ${attempt + 1}/${maxRetries + 1})`);
